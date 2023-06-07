@@ -18,6 +18,11 @@ public class PackageManager
         _packagesPath = packagesPath;
     }
 
+    private void EnsurePackagesDirectoryExists()
+    {
+        if (Directory.Exists(_packagesPath))
+            Directory.CreateDirectory(_packagesPath);
+    }
     private void WriteFile(string path, Stream stream)
     {
         var file = new FileStream(path, FileMode.Create);
@@ -104,6 +109,7 @@ public class PackageManager
 
     public Dictionary<string,List<NugetSpecification>> FindPackages(string? searchPattern,int skip,int take,bool prerelease,out int totalHits)
     {
+        EnsurePackagesDirectoryExists();
         totalHits = 0;
         Dictionary<string, List<NugetSpecification>> specifications = new();
         var directories = Directory.GetDirectories(_packagesPath)

@@ -92,7 +92,7 @@ public partial class NugetServer
             foreach (var id in attr.Ids)
             {
                 _endpointsUrls[NugetEndpoints[id]] =
-                    $"http://{_options.Host}:{_options.Port}/{_options.HttpPath}/api/v3/{attr.EndpointName}";
+                    $"http://{_options.HostName}:{_options.Port}/{_options.HttpPath}/api/v3/{attr.EndpointName}";
             }
 
         }

@@ -20,7 +20,7 @@ public class PackageManager
 
     private void EnsurePackagesDirectoryExists()
     {
-        if (Directory.Exists(_packagesPath))
+        if (!Directory.Exists(_packagesPath))
             Directory.CreateDirectory(_packagesPath);
     }
     private void WriteFile(string path, Stream stream)

@@ -126,17 +126,23 @@ public class PackageManager
             directories = directories.Where(d => d.Contains(searchPattern));
         foreach (var dir in directories)
         {
-            totalHits++;
+            
+            var versionDirectories = Directory.GetDirectories(dir);
+            if (versionDirectories.Length is 0)
+                continue;
+            
             var packageName = new DirectoryInfo(dir).Name;
             specifications.TryAdd(packageName, new List<NugetSpecification>());
             var specs = specifications[packageName];
-            foreach(var verDir in Directory.GetDirectories(dir))
+            
+            foreach(var verDir in versionDirectories)
             {
                 if (verDir.Contains('-') && !prerelease)
                     continue;
                 using var fs = File.OpenRead(Path.Join(verDir, $"{packageName}.nuspec"));
                 specs.Add(NugetSpecification.FromStream(fs));
             }
+            totalHits++;
         }
 
         return specifications;

@@ -120,6 +120,7 @@ public partial class NugetServer
         List<NugetApi.SearchQueryService.NugetPackage> data = new();
         foreach (var spec in specifications)
         {
+                
             var latestVer = spec.Value[^1];
             List<NugetPackageVersion> versions = new();
             foreach (var ver in spec.Value)

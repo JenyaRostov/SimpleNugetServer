@@ -28,6 +28,7 @@ public class PackageManager
         if(stream.CanSeek)
             stream.Position = 0;
         stream.CopyTo(file);
+        
         file.Flush();
         file.Close();
     }
@@ -42,15 +43,11 @@ public class PackageManager
             WriteFile(Path.Join(path,"icon.png"),package.Icon.Value);
     }
 
-    private bool DoesPackageExist(string id, string version)
-    {
-        return Directory.Exists(Path.Join(_packagesPath,id, version));
-    }
+    private string GetPackagePath(string name, string? version) => Path.Join(_packagesPath, name.ToLower(), version?.ToLower() ?? "");
 
-    public bool DoesPackageExist(string id)
-    {
-        return Directory.Exists(Path.Join(_packagesPath, id));
-    }
+    private bool DoesPackageExist(string id, string version) => Directory.Exists(GetPackagePath(id,version));
+
+    public bool DoesPackageExist(string id) => Directory.Exists(GetPackagePath(id,null));
 
     public bool DeletePackage(string id, string version)
     {
@@ -59,12 +56,12 @@ public class PackageManager
         if (!DoesPackageExist(id, version))
             return false;
         
-        Directory.Delete(Path.Join(_packagesPath,id,version),true);
+        Directory.Delete(GetPackagePath(id,version),true);
         return true;
     }
     public string[]? GetPackageVersions(string name)
     {
-        var packagePath = Path.Join(_packagesPath, name.ToLower());
+        var packagePath = GetPackagePath(name, null);
         return Directory.Exists(packagePath) 
             ? Directory.GetDirectories(packagePath).Select(d => new DirectoryInfo(d).Name).ToArray()
             : null;
@@ -72,35 +69,33 @@ public class PackageManager
 
     public Memory<byte>? GetPackage(string name, string version)
     {
-        var packagePath = Path.Join(_packagesPath, name.ToLower(),version);
+        var packagePath = GetPackagePath(name, version);
         return Directory.Exists(packagePath) ? File.ReadAllBytes(Path.Join(packagePath, $"{name}.nupkg")) : null;
     }
 
     public Memory<byte>? GetNuspecBytes(string name, string version)
     {
-        var path = Path.Join(_packagesPath, name, version);
-        return Directory.Exists(path) ? File.ReadAllBytes(Path.Join(path, $"{name}.nuspec")) : null;
+        var nuspecPath = GetPackagePath(name,version);
+        return Directory.Exists(nuspecPath) ? File.ReadAllBytes(Path.Join(nuspecPath, $"{name}.nuspec")) : null;
     }
 
     public NugetSpecification GetNuspec(string name, string version)
     {
-        var path = Path.Join(_packagesPath, name, version,$"{name}.nuspec");
-        return NugetSpecification.FromStream(File.OpenRead(path));
+        var nuspecPath = Path.Join(GetPackagePath(name, version), $"{name}.nuspec");
+        return NugetSpecification.FromStream(File.OpenRead(nuspecPath));
     }
 
     public Memory<byte>? GetIcon(string name, string version)
     {
-        var path = Path.Join(_packagesPath, name, version, "icon.png");
-        return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        var iconPath = Path.Join(GetPackagePath(name,version), "icon.png");
+        return File.Exists(iconPath) ? File.ReadAllBytes(iconPath) : null;
     }
     public PackageAddResult AddPackage(NugetPackage package,Stream packageStream,Stream nuspecStream)
     {
         var nuspec = package.Nuspec;
         var packageName = nuspec.Id;
-        var packagePath = Path.Join(_packagesPath, packageName);
-        var packageExists = DoesPackageExist(packageName, nuspec.Version);
-        
-        if (packageExists)
+        var packagePath = GetPackagePath(packageName, null);
+        if (DoesPackageExist(packageName, nuspec.Version))
             return PackageAddResult.AlreadyExists;
         
         Directory.CreateDirectory(packagePath);
@@ -124,9 +119,9 @@ public class PackageManager
             .Take(take);
         if(!string.IsNullOrEmpty(searchPattern))
             directories = directories.Where(d => d.Contains(searchPattern));
+        
         foreach (var dir in directories)
         {
-            
             var versionDirectories = Directory.GetDirectories(dir);
             if (versionDirectories.Length is 0)
                 continue;
@@ -142,6 +137,7 @@ public class PackageManager
                 using var fs = File.OpenRead(Path.Join(verDir, $"{packageName}.nuspec"));
                 specs.Add(NugetSpecification.FromStream(fs));
             }
+            
             totalHits++;
         }
 

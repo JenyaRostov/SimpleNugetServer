@@ -182,6 +182,7 @@ public partial class NugetServer
             SetResponse(ctx, HttpStatusCode.NotFound, null);
             return;
         }
+        
         if (!_packageManager.DoesPackageExist(id))
         {
             SetResponse(ctx, HttpStatusCode.NotFound, null);

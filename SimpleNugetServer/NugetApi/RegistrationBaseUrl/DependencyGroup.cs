@@ -4,11 +4,11 @@ using JetBrains.Annotations;
 namespace SimpleNugetServer.NugetApi;
 
 [UsedImplicitly]
-public record RegistrationPageObject(
+public record DependencyGroup(
     [property: JsonPropertyName("@id")] string ElementId,
-    string lower,
-    string upper,
-    RegistrationLeaf[] items)
+    string targetFramework,
+    Dependency[] dependencies)
 {
-    public int count => items.Length;
+
+    [JsonPropertyName("@type")] public string Type => "PackageDependencyGroup";
 }

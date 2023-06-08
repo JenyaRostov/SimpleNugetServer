@@ -6,7 +6,8 @@ namespace SimpleNugetServer.NugetApi;
 [UsedImplicitly]
 public record RegistrationLeaf(
     [property: JsonPropertyName("@id")] string ElementId, 
-    string packageContent)
+    string packageContent,
+    CatalogEntry catalogEntry)
 {
-    [JsonPropertyName("@type")] public string ElementType => "Package";
+    //[JsonPropertyName("@type")] public string ElementType => "Package";
 }

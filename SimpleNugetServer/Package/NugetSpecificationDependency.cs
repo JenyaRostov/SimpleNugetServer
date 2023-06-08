@@ -3,7 +3,7 @@
 namespace SimpleNugetServer.Package;
 
 [UsedImplicitly]
-public record class NugetSpecificationDependency(
+public record NugetSpecificationDependency(
     string Id,
     string Version,
     string? Exclude);

@@ -1,3 +1,3 @@
 ﻿namespace SimpleNugetServer.NugetApi.SearchQueryService;
 
-public record class NugetPackageType(string name);
+public record NugetPackageType(string name);

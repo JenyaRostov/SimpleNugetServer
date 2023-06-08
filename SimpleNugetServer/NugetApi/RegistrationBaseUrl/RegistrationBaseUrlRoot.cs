@@ -4,7 +4,7 @@ using JetBrains.Annotations;
 namespace SimpleNugetServer.NugetApi;
 
 [UsedImplicitly]
-public record class RegistrationBaseUrlRoot(
+public record RegistrationBaseUrlRoot(
     [property: JsonPropertyName("@id")] string ElementId,
     RegistrationPageObject[] items)
 {

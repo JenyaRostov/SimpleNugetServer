@@ -41,7 +41,7 @@ public partial class NugetServer
 
     //ApiPath -> AllEndpoints
     private Dictionary<string, Dictionary<NugetEndpoint, NugetEndpointInfo>> _endpoints = new();
-
+    
     //EndPointName -> Func
     private Dictionary<string, NugetResourceEndpointFunc> _endpointsFuncs = new();
 
@@ -100,7 +100,9 @@ public partial class NugetServer
                 yield return new CompiledNugetEndpointMethodInfo(id, attr.EndpointName, attr.Comment, lambda);
         }
     }
-    
+
+    private string CreateEndpointUrl(string apiPath, string endpointName) =>
+        $"http{(Ssl ? "s" : "")}://{_options.HostName}{GetPort()}/{apiPath}/api/v3/{endpointName}";
     private void CreateEndpoints(string apiPath)
     {
         
@@ -126,10 +128,9 @@ public partial class NugetServer
     {
         List<NugetResource> resources = new();
 
-        foreach (var endpoint in _endpoints[apiPath])
+        foreach (var endpoint in _endpointInfos)
         {
-            var info = endpoint.Value;
-            NugetResource resource = new(info.FullUrl, info.Id, info.Comment);
+            NugetResource resource = new(CreateEndpointUrl(apiPath,endpoint.EndpointUrl), endpoint.Id, endpoint.Comment);
             resources.Add(resource);
         }
 

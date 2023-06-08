@@ -48,9 +48,11 @@ public partial class NugetServer
         { "RegistrationsBaseUrl", NugetEndpoint.RegistrationsBaseUrl },
         { "RegistrationsBaseUrl/3.0.0-beta", NugetEndpoint.RegistrationsBaseUrl },
         { "RegistrationsBaseUrl/3.0.0-rc", NugetEndpoint.RegistrationsBaseUrl },
+        { "RegistrationsBaseUrl/3.6.0", NugetEndpoint.RegistrationsBaseUrl },
         { "SearchQueryService", NugetEndpoint.SearchQueryService },
         { "SearchQueryService/3.0.0-beta", NugetEndpoint.SearchQueryService },
-        { "SearchQueryService/3.0.0-rc", NugetEndpoint.SearchQueryService }
+        { "SearchQueryService/3.0.0-rc", NugetEndpoint.SearchQueryService },
+        { "Catalog/3.0.0", NugetEndpoint.Catalog}
     };
 
     public NugetServer(NugetServerOptions options)
@@ -122,9 +124,9 @@ public partial class NugetServer
         if (obj != null)
         {
             var serialized = JsonSerializer.Serialize(obj);
-            ctx.Response.OutputStream.Write(Encoding.UTF8.GetBytes(serialized));
             ctx.Response.ContentEncoding = Encoding.UTF8;
             ctx.Response.ContentType = "application/json";
+            ctx.Response.OutputStream.Write(Encoding.UTF8.GetBytes(serialized));
         }
         else
         {
@@ -166,13 +168,14 @@ public partial class NugetServer
 
         var apiPath = url[0];
         var endpointName = url[3];
-        if (url is [_, _, _, "index.json"] && apiPath == _options.HttpPath)
+        var isAllowed = _options.CustomPathValidationCallback?.Invoke(apiPath) ?? apiPath == _options.HttpPath;
+        if (url is [_, _, _, "index.json"] && isAllowed)
         {
             SendIndex(ctx);
             return;
         }
 
-        if (apiPath != _options.HttpPath || !_endpoints.TryGetValue(endpointName, out var endpointFunc))
+        if (!isAllowed || !_endpoints.TryGetValue(endpointName, out var endpointFunc))
         {
             SetResponse(ctx, HttpStatusCode.NotFound, null);
             return;
@@ -182,7 +185,7 @@ public partial class NugetServer
     }
 
     protected Uri GetEndpoint(NugetEndpoint endpoint) => new($"{_endpointsUrls[endpoint]}/");
-
+    
     protected string GetRegistration(string packageName, string? version)
     {
         var endpoint = GetEndpoint(NugetEndpoint.RegistrationsBaseUrl);
@@ -190,23 +193,44 @@ public partial class NugetServer
         return new Uri(endpoint, $"{packageName}/{(version ?? "index")}.json").ToString();
     }
 
-    protected string GetIconUrl(string packageName, string version)
+    protected string GetNugetOrgRegistration(string packageName)
     {
-        var nuspec = _packageManager.GetNuspec(packageName, version);
+        return $"https://api.nuget.org/v3/registration5-semver1/{packageName.ToLower()}/index.json";
+    }
+
+    protected string GetIconUrl(NugetSpecification nuspec)
+    {
         if (nuspec.IconUrl != null)
             return nuspec.IconUrl;
 
         var endpoint = GetEndpoint(NugetEndpoint.PackageBaseAddress);
-
+        
+        var packageName = nuspec.Id.ToLower();
+        var version = nuspec.Version.ToLower();
+        
         return new Uri(endpoint, $"{packageName}/{version}/icon").ToString();
     }
 
+    protected string GetIconUrl(string packageName, string version) =>
+        GetIconUrl(_packageManager.GetNuspec(packageName, version));
+    
     protected string GetContentUrl(string packageName, string version)
     {
+        (packageName, version) = (packageName.ToLower(), version.ToLower());
+        
         var endpoint = GetEndpoint(NugetEndpoint.PackageBaseAddress);
         return new Uri(endpoint, $"{packageName}/{version}/{packageName}.{version}.nupkg").ToString();
     }
 
+    protected string GetCatalogUrl(string packageName, string version)
+    {
+        (packageName, version) = (packageName.ToLower(), version.ToLower());
+        
+        var endpoint = GetEndpoint(NugetEndpoint.Catalog);
+        var updateTime = _packageManager.GetPackageUploadTime(packageName, version)
+            .ToString("yyyy.MM.dd.hh.mm.ss");
+        return new Uri(endpoint, $"{updateTime}/{packageName.ToLower()}.{version}.json").ToString();
+    }
     public void Start()
     {
         _webserver.Prefixes.Add($"http{(Ssl ? "s" : "")}://{_options.Host}:{_options.Port}/"); //TODO:

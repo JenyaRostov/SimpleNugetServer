@@ -11,8 +11,8 @@ using SimpleNugetServer.Package;
 namespace SimpleNugetServer;
 
 using Context = HttpListenerContext;
-using NugetResourceEndpointFunc = Action<HttpListenerContext, string[]>;
-
+using NugetResourceEndpointFunc = Action<HttpListenerContext,string, string[]>;
+using EndpointMethod = ValueTuple<string,string[],Action<HttpListenerContext,string, string[]>>;
 public enum NugetEndpoint
 {
     Catalog,
@@ -27,20 +27,30 @@ public enum NugetEndpoint
     SymbolPackagePublish
 }
 
+internal record CompiledNugetEndpointMethodInfo(string Id, string EndpointUrl,string Comment,NugetResourceEndpointFunc Func);
+
+internal record NugetEndpointInfo(string Id, string FullUrl, string Comment);
 public partial class NugetServer
 {
     private const string Version = "3.0.0";
     private NugetServerOptions _options;
     private HttpListener _webserver;
-    private NugetIndex _index;
 
     private bool Ssl => //_options.Certificate != null;//TODO: tls
         false;
 
-    private Dictionary<string, NugetResourceEndpointFunc> _endpoints = new();
-    private Dictionary<NugetEndpoint, string> _endpointsUrls = new();
-    private PackageManager _packageManager;
+    //ApiPath -> AllEndpoints
+    private Dictionary<string, Dictionary<NugetEndpoint, NugetEndpointInfo>> _endpoints = new();
 
+    //EndPointName -> Func
+    private Dictionary<string, NugetResourceEndpointFunc> _endpointsFuncs = new();
+
+    private CompiledNugetEndpointMethodInfo[] _endpointInfos;
+    //private Dictionary<string, NugetResourceEndpointFunc> _endpoints = new();
+    //private Dictionary<string,Dictionary<NugetEndpoint, NugetEndpointInfo>> _endpointsUrls = new();
+    //private EndpointMethod[] _endpointMethods;
+    private PackageManager _packageManager;
+    
     internal static Dictionary<string, NugetEndpoint> NugetEndpoints = new()
     {
         { "PackageBaseAddress/3.0.0", NugetEndpoint.PackageBaseAddress },
@@ -60,20 +70,20 @@ public partial class NugetServer
         _options = options;
         _webserver = new HttpListener();
 
-        CreateEndpoints(out var methods);
+        //CreateEndpoints(out var methods);
+        _endpointInfos = CompileEndpointMethods().ToArray();
 
-        _index = CreateIndex(methods);
         _packageManager = new PackageManager(options.PackagesPath);
     }
-
+    
     private string GetPort()
     {
         return _options.Port is not 443 and not 80 ? $":{_options.Port}" : "";
     }
 
-    private void CreateEndpoints(out MethodInfo[] methods)
+    private IEnumerable<CompiledNugetEndpointMethodInfo> CompileEndpointMethods()
     {
-        methods = GetType().GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+        var methods = GetType().GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
             .Where(m => m.GetCustomAttribute<NugetResourceEndpointAttribute>() != null).ToArray();
 
         foreach (var method in methods)
@@ -84,31 +94,45 @@ public partial class NugetServer
                 .ToArray();
 
             var call = Expression.Call(Expression.Constant(this), method, parameters);
-            var lambda = Expression.Lambda<Action<Context, string[]>>(call, parameters).Compile();
-            _endpoints[attr.EndpointName] = lambda;
-            foreach (var id in attr.Ids)
-            {
-                _endpointsUrls[NugetEndpoints[id]] =
-                    $"http://{_options.HostName}:{_options.Port}/{_options.HttpPath}/api/v3/{attr.EndpointName}";
-            }
+            var lambda = Expression.Lambda<Action<Context, string,string[]>>(call, parameters).Compile();
+            _endpointsFuncs[attr.EndpointName] = lambda;
+            foreach(var id in attr.Ids)
+                yield return new CompiledNugetEndpointMethodInfo(id, attr.EndpointName, attr.Comment, lambda);
         }
     }
+    
+    private void CreateEndpoints(string apiPath)
+    {
+        
 
-    private NugetIndex CreateIndex(MethodInfo[] methods)
+        if (_endpoints.TryGetValue(apiPath, out var endpoints))
+            return;
+        
+        endpoints ??= new Dictionary<NugetEndpoint, NugetEndpointInfo>();
+
+        foreach (var endpointInfo in _endpointInfos)
+        {
+            endpoints[NugetEndpoints[endpointInfo.Id]] =
+                new NugetEndpointInfo(endpointInfo.Id,
+                    $"http{(Ssl ? "s" : "")}://{_options.HostName}{GetPort()}/{apiPath}/api/v3/{endpointInfo.EndpointUrl}",
+                    endpointInfo.Comment);
+        }
+
+        _endpoints[apiPath] = endpoints;
+
+    }
+
+    private NugetIndex CreateIndex(string apiPath)
     {
         List<NugetResource> resources = new();
 
-        foreach (var method in methods)
+        foreach (var endpoint in _endpoints[apiPath])
         {
-            var nugetResourceAttr = method.GetCustomAttribute<NugetResourceEndpointAttribute>()!;
-            foreach (var id in nugetResourceAttr.Ids)
-            {
-                NugetResource resource = new(
-                    $"http{(Ssl ? "s" : "")}://{_options.HostName}{GetPort()}/{_options.HttpPath}/api/v3/{nugetResourceAttr.EndpointName}/",
-                    id, nugetResourceAttr.Comment);
-                resources.Add(resource);
-            }
+            var info = endpoint.Value;
+            NugetResource resource = new(info.FullUrl, info.Id, info.Comment);
+            resources.Add(resource);
         }
+
 
         return new NugetIndex(Version, resources.ToArray(), new NugetContext());
     }
@@ -152,9 +176,10 @@ public partial class NugetServer
         ctx.Response.OutputStream.Close();
     }
 
-    private void SendIndex(Context ctx)
+    private void SendIndex(Context ctx,string apiPath)
     {
-        SetResponse(ctx, HttpStatusCode.OK, _index);
+        var index = CreateIndex(apiPath);
+        SetResponse(ctx, HttpStatusCode.OK, index);
     }
 
     private void Handle(Context ctx)
@@ -169,26 +194,29 @@ public partial class NugetServer
         var apiPath = url[0];
         var endpointName = url[3];
         var isAllowed = _options.CustomPathValidationCallback?.Invoke(apiPath) ?? apiPath == _options.HttpPath;
+        
+        if(isAllowed)
+            CreateEndpoints(apiPath);
         if (url is [_, _, _, "index.json"] && isAllowed)
         {
-            SendIndex(ctx);
+            SendIndex(ctx,apiPath);
             return;
         }
 
-        if (!isAllowed || !_endpoints.TryGetValue(endpointName, out var endpointFunc))
+        if (!isAllowed || !_endpointsFuncs.TryGetValue(endpointName, out var endpointFunc))
         {
             SetResponse(ctx, HttpStatusCode.NotFound, null);
             return;
         }
 
-        endpointFunc(ctx, url[4..]);
+        endpointFunc(ctx, apiPath,url[4..]);
     }
 
-    protected Uri GetEndpoint(NugetEndpoint endpoint) => new($"{_endpointsUrls[endpoint]}/");
+    protected Uri GetEndpoint(NugetEndpoint endpoint,string apiPath) => new($"{_endpoints[apiPath][endpoint].FullUrl}/");
     
-    protected string GetRegistration(string packageName, string? version)
+    protected string GetRegistration(string packageName, string? version,string apiPath)
     {
-        var endpoint = GetEndpoint(NugetEndpoint.RegistrationsBaseUrl);
+        var endpoint = GetEndpoint(NugetEndpoint.RegistrationsBaseUrl,apiPath);
 
         return new Uri(endpoint, $"{packageName}/{(version ?? "index")}.json").ToString();
     }
@@ -198,12 +226,12 @@ public partial class NugetServer
         return $"https://api.nuget.org/v3/registration5-semver1/{packageName.ToLower()}/index.json";
     }
 
-    protected string GetIconUrl(NugetSpecification nuspec)
+    protected string GetIconUrl(NugetSpecification nuspec,string apiPath)
     {
         if (nuspec.IconUrl != null)
             return nuspec.IconUrl;
 
-        var endpoint = GetEndpoint(NugetEndpoint.PackageBaseAddress);
+        var endpoint = GetEndpoint(NugetEndpoint.PackageBaseAddress,apiPath);
         
         var packageName = nuspec.Id.ToLower();
         var version = nuspec.Version.ToLower();
@@ -211,22 +239,22 @@ public partial class NugetServer
         return new Uri(endpoint, $"{packageName}/{version}/icon").ToString();
     }
 
-    protected string GetIconUrl(string packageName, string version) =>
-        GetIconUrl(_packageManager.GetNuspec(packageName, version));
+    protected string GetIconUrl(string packageName, string version,string apiPath) =>
+        GetIconUrl(_packageManager.GetNuspec(packageName, version),apiPath);
     
-    protected string GetContentUrl(string packageName, string version)
+    protected string GetContentUrl(string packageName, string version,string apiPath)
     {
         (packageName, version) = (packageName.ToLower(), version.ToLower());
         
-        var endpoint = GetEndpoint(NugetEndpoint.PackageBaseAddress);
+        var endpoint = GetEndpoint(NugetEndpoint.PackageBaseAddress,apiPath);
         return new Uri(endpoint, $"{packageName}/{version}/{packageName}.{version}.nupkg").ToString();
     }
 
-    protected string GetCatalogUrl(string packageName, string version)
+    protected string GetCatalogUrl(string packageName, string version,string apiPath)
     {
         (packageName, version) = (packageName.ToLower(), version.ToLower());
         
-        var endpoint = GetEndpoint(NugetEndpoint.Catalog);
+        var endpoint = GetEndpoint(NugetEndpoint.Catalog,apiPath);
         var updateTime = _packageManager.GetPackageUploadTime(packageName, version)
             .ToString("yyyy.MM.dd.hh.mm.ss");
         return new Uri(endpoint, $"{updateTime}/{packageName.ToLower()}.{version}.json").ToString();

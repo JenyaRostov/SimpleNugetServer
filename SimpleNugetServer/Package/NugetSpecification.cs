@@ -1,5 +1,4 @@
-﻿using System.Runtime.InteropServices;
-using System.Xml;
+﻿using System.Xml;
 
 namespace SimpleNugetServer.Package;
 
@@ -15,7 +14,7 @@ public class NugetSpecification
     public string? IconUrl { get; set;}
     public string ProjectUrl { get; set;}
     public string Description { get; set;}
-    public string ReleaseNotes { get; set;}
+    public string? ReleaseNotes { get; set;}
     public string Copyright { get; set;}
     public string[] Tags { get; set;}
     public Dictionary<string,NugetSpecificationDependency[]> Dependencies { get; set;}

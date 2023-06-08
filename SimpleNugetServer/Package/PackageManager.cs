@@ -11,7 +11,6 @@ public enum PackageAddResult
 public class PackageManager
 {
     private string _packagesPath;
-    private ConcurrentDictionary<string, SemaphoreSlim> _packagesSlims = new();
     
     public PackageManager(string packagesPath)
     {
@@ -43,18 +42,25 @@ public class PackageManager
             WriteFile(Path.Join(path,"icon.png"),package.Icon.Value);
     }
 
-    private bool DoesPackageExist(string id, string version,string packagePath)
+    private bool DoesPackageExist(string id, string version)
     {
-        //var slim = _packagesSlims.GetOrAdd(id, new SemaphoreSlim(1));
-        //slim.Wait();
-        var exists = Directory.Exists(Path.Join(packagePath, version));
-        //slim.Release();
-        return exists;
+        return Directory.Exists(Path.Join(_packagesPath,id, version));
     }
 
     public bool DoesPackageExist(string id)
     {
         return Directory.Exists(Path.Join(_packagesPath, id));
+    }
+
+    public bool DeletePackage(string id, string version)
+    {
+        id = id.ToLower();
+        version = version.ToLower();
+        if (!DoesPackageExist(id, version))
+            return false;
+        
+        Directory.Delete(Path.Join(_packagesPath,id,version),true);
+        return true;
     }
     public string[]? GetPackageVersions(string name)
     {
@@ -92,7 +98,7 @@ public class PackageManager
         var nuspec = package.Nuspec;
         var packageName = nuspec.Id;
         var packagePath = Path.Join(_packagesPath, packageName);
-        var packageExists = DoesPackageExist(packageName, nuspec.Version, packagePath);
+        var packageExists = DoesPackageExist(packageName, nuspec.Version);
         
         if (packageExists)
             return PackageAddResult.AlreadyExists;
@@ -112,6 +118,7 @@ public class PackageManager
         EnsurePackagesDirectoryExists();
         totalHits = 0;
         Dictionary<string, List<NugetSpecification>> specifications = new();
+        searchPattern ??= searchPattern?.ToLower();
         var directories = Directory.GetDirectories(_packagesPath)
             .Skip(skip)
             .Take(take);

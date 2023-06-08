@@ -1,15 +1,11 @@
 ﻿using System.Collections.Specialized;
 using System.Net;
-using System.Net.Sockets;
-using System.Transactions;
-using System.Web;
 using HttpMultipartParser;
 using JetBrains.Annotations;
 using SimpleNugetServer.Attributes;
 using SimpleNugetServer.NugetApi;
 using SimpleNugetServer.NugetApi.SearchQueryService;
 using SimpleNugetServer.Package;
-using HttpMethod = System.Net.Http.HttpMethod;
 using NugetPackage = SimpleNugetServer.Package.NugetPackage;
 
 namespace SimpleNugetServer;
@@ -21,50 +17,28 @@ public partial class NugetServer
         "",
         "PackagePublish")]
     [UsedImplicitly]
-    private async Task PackagePublish(Context ctx,string[] urlParams)
+    private void PackagePublish(Context ctx,string[] urlParams)
     {
-        
+
+        if (ctx.Request.HttpMethod is "DELETE" && urlParams is [var id, var version])
+        {
+            var status = _packageManager.DeletePackage(id,version);
+            SetResponse(ctx,status ? HttpStatusCode.OK : HttpStatusCode.NotFound,null);
+            return;
+        }
         if (ctx.Request.ContentType is null || !ctx.Request.ContentType.Contains("multipart/form-data") || ctx.Request.HttpMethod != "PUT")
         {
             SetResponse(ctx, HttpStatusCode.BadRequest, null);
             return;
         }
-        
-       
-        MultipartFormDataParser parser = null;
+
+
         MemoryStream fullData = new();
-        await ctx.Request.InputStream.CopyToAsync(fullData);
+        ctx.Request.InputStream.CopyTo(fullData);
         fullData.Position = 0;
-        parser = await MultipartFormDataParser.ParseAsync(fullData);
-        /*if (ctx.Request.DataAsBytes != null)
-            parser = await MultipartFormDataParser.ParseAsync(new MemoryStream(ctx.Request.DataAsBytes));
-        else
-        {
-            if (!ctx.Request.ChunkedTransfer)
-            {
-                await SetResponse(ctx, HttpStatusCode.BadRequest, null);
-                return;
-            }
-
-            MemoryStream data = new();
-            Chunk chunk;
-            do
-            {
-                chunk = await ctx.Request.ReadChunk();
-                data.Write(chunk.Data);
-            } while (chunk.IsFinalChunk);
-
-            data.Position = 0;
-            parser = await MultipartFormDataParser.ParseAsync(data);
-
-        }*/
-        /*if (ctx.Request.DataAsBytes is null)
-        {
-            await SetResponse(ctx, HttpStatusCode.Continue, null);
-            return;
-        }*/
-
-        if (parser.Files.Count == 0)
+        var parser = MultipartFormDataParser.Parse(fullData);
+        
+        if (parser.Files.Count is 0)
         {
             SetResponse(ctx, HttpStatusCode.BadRequest, null);
             return;
@@ -84,43 +58,42 @@ public partial class NugetServer
     [UsedImplicitly]
     private void PackageBaseAddress(Context ctx,string[] urlParams)
     {
-        if (urlParams is [var packageName, "index.json"])
+        switch (urlParams)
         {
-            var versions = _packageManager.GetPackageVersions(packageName);
-            SetResponse(ctx, versions != null ? HttpStatusCode.OK : HttpStatusCode.NotFound,
-                versions != null
-                    ? new
-                    {
-                        versions
-                    }
-                    : null);
-            return;
-        }
-
-        if (urlParams is [var lowerId, var lowerVersion, var data])
-        {
-            if(data.EndsWith(".nupkg"))
+            case [var packageName, "index.json"]:
+            {
+                var versions = _packageManager.GetPackageVersions(packageName);
+                SetResponse(ctx, versions != null ? HttpStatusCode.OK : HttpStatusCode.NotFound,
+                    versions != null
+                        ? new
+                        {
+                            versions
+                        }
+                        : null);
+                return;
+            }
+            case [var lowerId, var lowerVersion, var data] when data.EndsWith(".nupkg"):
             {
                 var package = _packageManager.GetPackage(lowerId, lowerVersion);
                 SetResponseBinary(ctx, package != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, package);
                 return;
-            } 
-            else if (data.EndsWith(".nuspec"))
+            }
+            case [var lowerId, var lowerVersion, var data] when data.EndsWith(".nuspec"):
             {
                 var nuspec = _packageManager.GetNuspecBytes(lowerId,lowerVersion);
                 SetResponseBinary(ctx, nuspec != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, nuspec);
                 return;
             }
-            else if (data == "icon")
+            case [var lowerId, var lowerVersion, "icon"]:
             {
                 var icon = _packageManager.GetIcon(lowerId, lowerVersion);
                 SetResponseBinary(ctx, icon != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, icon);
                 return;
             }
+            default:
+                SetResponse(ctx, HttpStatusCode.BadRequest, null);
+                break;
         }
-
-        SetResponse(ctx, HttpStatusCode.BadRequest, null);
-
     }
 
     [NugetResourceEndpoint(
@@ -133,10 +106,10 @@ public partial class NugetServer
         "",
         "SearchQueryService")]
     [UsedImplicitly]
-    private void SearchQueryService(Context ctx, string[] urlParams)
+    private void SearchQueryService(Context ctx, string[] urlParams)//TODO: Support unlisting packages
     {
         
-        var queryElements = ctx.Request.QueryString ?? new NameValueCollection();
+        var queryElements = ctx.Request.QueryString;
         var specifications = 
             _packageManager.FindPackages(
                 queryElements["q"],

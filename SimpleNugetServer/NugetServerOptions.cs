@@ -1,6 +1,4 @@
-﻿using System.Security.Cryptography.X509Certificates;
-
-namespace SimpleNugetServer;
+﻿namespace SimpleNugetServer;
 
 public class NugetServerOptions
 {

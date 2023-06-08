@@ -1,5 +1,4 @@
-﻿using System.Collections.Specialized;
-using System.Net;
+﻿using System.Net;
 using HttpMultipartParser;
 using JetBrains.Annotations;
 using SimpleNugetServer.Attributes;
@@ -7,9 +6,9 @@ using SimpleNugetServer.NugetApi;
 using SimpleNugetServer.NugetApi.SearchQueryService;
 using SimpleNugetServer.Package;
 using NugetPackage = SimpleNugetServer.Package.NugetPackage;
-
 namespace SimpleNugetServer;
 using Context = HttpListenerContext;
+
 public partial class NugetServer
 {
     [NugetResourceEndpoint(
@@ -17,36 +16,36 @@ public partial class NugetServer
         "",
         "PackagePublish")]
     [UsedImplicitly]
-    private void PackagePublish(Context ctx,string[] urlParams)
+    private void PackagePublish(Context ctx, string[] urlParams)
     {
-
         if (ctx.Request.HttpMethod is "DELETE" && urlParams is [var id, var version])
         {
-            var status = _packageManager.DeletePackage(id,version);
-            SetResponse(ctx,status ? HttpStatusCode.OK : HttpStatusCode.NotFound,null);
+            var status = _packageManager.DeletePackage(id, version);
+            SetResponse(ctx, status ? HttpStatusCode.OK : HttpStatusCode.NotFound, null);
             return;
         }
-        if (ctx.Request.ContentType is null || !ctx.Request.ContentType.Contains("multipart/form-data") || ctx.Request.HttpMethod != "PUT")
+
+        if (ctx.Request.ContentType is null || !ctx.Request.ContentType.Contains("multipart/form-data") ||
+            ctx.Request.HttpMethod != "PUT")
         {
             SetResponse(ctx, HttpStatusCode.BadRequest, null);
             return;
         }
 
-
         MemoryStream fullData = new();
         ctx.Request.InputStream.CopyTo(fullData);
         fullData.Position = 0;
         var parser = MultipartFormDataParser.Parse(fullData);
-        
+
         if (parser.Files.Count is 0)
         {
             SetResponse(ctx, HttpStatusCode.BadRequest, null);
             return;
         }
         
-
         var file = parser.Files[0].Data!;
-        var result = _packageManager.AddPackage(NugetPackage.FromStream(file,out var nuspecStream), file,nuspecStream);
+        var result =
+            _packageManager.AddPackage(NugetPackage.FromStream(file, out var nuspecStream), file, nuspecStream);
         SetResponse(ctx, result is PackageAddResult.AlreadyExists ? HttpStatusCode.Conflict : HttpStatusCode.OK,
             null);
     }
@@ -56,7 +55,7 @@ public partial class NugetServer
         "",
         "PackageBaseAddress")]
     [UsedImplicitly]
-    private void PackageBaseAddress(Context ctx,string[] urlParams)
+    private void PackageBaseAddress(Context ctx, string[] urlParams)
     {
         switch (urlParams)
         {
@@ -80,7 +79,7 @@ public partial class NugetServer
             }
             case [var lowerId, var lowerVersion, var data] when data.EndsWith(".nuspec"):
             {
-                var nuspec = _packageManager.GetNuspecBytes(lowerId,lowerVersion);
+                var nuspec = _packageManager.GetNuspecBytes(lowerId, lowerVersion);
                 SetResponseBinary(ctx, nuspec != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, nuspec);
                 return;
             }
@@ -97,7 +96,7 @@ public partial class NugetServer
     }
 
     [NugetResourceEndpoint(
-        new []
+        new[]
         {
             "SearchQueryService",
             "SearchQueryService/3.0.0-beta",
@@ -106,90 +105,150 @@ public partial class NugetServer
         "",
         "SearchQueryService")]
     [UsedImplicitly]
-    private void SearchQueryService(Context ctx, string[] urlParams)//TODO: Support unlisting packages
+    private void SearchQueryService(Context ctx, string[] urlParams) //TODO: Support unlisting packages
     {
-        
         var queryElements = ctx.Request.QueryString;
-        var specifications = 
+        var specifications =
             _packageManager.FindPackages(
                 queryElements["q"],
-                int.Parse(queryElements["skip"] ?? "0"), 
+                int.Parse(queryElements["skip"] ?? "0"),
                 int.Parse(queryElements["take"] ?? "1000"),
                 bool.Parse(queryElements["prerelease"] ?? "false"),
                 out var totalHits);
         List<NugetApi.SearchQueryService.NugetPackage> data = new();
         foreach (var spec in specifications)
         {
-                
             var latestVer = spec.Value[^1];
             List<NugetPackageVersion> versions = new();
             foreach (var ver in spec.Value)
             {
-                versions.Add(new NugetPackageVersion(GetRegistration(latestVer.Id,latestVer.Version),ver.Version,0));
+                versions.Add(new NugetPackageVersion(GetRegistration(latestVer.Id, latestVer.Version), ver.Version, 0));
             }
 
             var nugetPackage = new NugetApi.SearchQueryService.NugetPackage(
-                GetRegistration(latestVer.Id,null),
+                GetRegistration(latestVer.Id, null),
                 GetRegistration(latestVer.Id, null),
                 latestVer.Name,
                 latestVer.Version,
                 latestVer.Description,
                 "",
                 GetIconUrl(latestVer.Id, latestVer.Version),
-                latestVer.LicenseUrl,
+                latestVer.LicenseUrl ?? "",
                 latestVer.Tags,
                 latestVer.Authors,
                 Array.Empty<NugetPackageType>(),
-                versions.ToArray());//Package types is null for now
+                versions.ToArray()); //Package types is null for now
             data.Add(nugetPackage);
 
         }
 
-        var response = new
-        {
-            totalHits,
-            data
-        };
-        SetResponse(ctx, HttpStatusCode.OK, response);
+        var result = new SearchResult(totalHits, data, new SearchContext(
+            GetEndpoint(NugetEndpoint.RegistrationsBaseUrl).ToString()));
+        SetResponse(ctx, HttpStatusCode.OK, result);
     }
 
-    private IEnumerable<RegistrationLeaf> GetLeafs(string id,string[] versions)
+    private IEnumerable<DependencyGroup> GetDependencyGroups(NugetSpecification spec)
+    {
+        var nuspecDependencies = spec.Dependencies;
+        foreach (var depGroup in nuspecDependencies)
+        {
+            List<Dependency> dependencies = new();
+
+            foreach (var dependency in depGroup.Value)
+            {
+                var packageExists = _packageManager.DoesPackageExist(dependency.Id);
+                dependencies.Add(new Dependency("",
+                    dependency.Id,
+                    $"[{dependency.Version}, )",
+                    packageExists
+                        ? GetRegistration(dependency.Id, null)
+                        : GetNugetOrgRegistration(dependency.Id)));
+            }
+
+            yield return new DependencyGroup("", depGroup.Key, dependencies.ToArray());
+        }
+    }
+
+    private CatalogEntry GetCatalogEntry(string packageName, string version)
+    {
+        var nuspec = _packageManager.GetNuspec(packageName, version);
+        var packagePublishTime = _packageManager.GetPackageUploadTime(packageName, version);
+
+        var entry = new CatalogEntry(
+            //"",
+            nuspec.Authors,
+            GetDependencyGroups(nuspec).ToArray(),
+            nuspec.Description,
+            GetIconUrl(nuspec),
+            nuspec.Id,
+            "",
+            "",
+            nuspec.LicenseUrl,
+            true, //TODO: add unlisting
+            "",
+            GetContentUrl(packageName, version),
+            nuspec.ProjectUrl,
+            packagePublishTime,
+            false,
+            "",
+            nuspec.Tags,
+            "",
+            nuspec.Version
+        );
+        return entry;
+    }
+
+    private IEnumerable<RegistrationLeaf> GetLeafs(string packageName, string[] versions)
     {
         return versions.Select(ver => new RegistrationLeaf(
-            GetRegistration(id, ver),
-            GetContentUrl(id, ver)));
+            GetRegistration(packageName, ver),
+            GetContentUrl(packageName, ver),
+            GetCatalogEntry(packageName, ver)));
     }
 
-    private RegistrationPageObject GetRegistrationPage(string id)
+    private RegistrationPageObject GetRegistrationPage(string packageName)
     {
-        var versions = _packageManager.GetPackageVersions(id)!;
+        var versions = _packageManager.GetPackageVersions(packageName)!;
         var obj = new RegistrationPageObject(
-            GetRegistration(id, null),
+            GetRegistration(packageName, null),
             versions[0],
             versions[^1],
-            GetLeafs(id,versions).ToArray());
+            GetLeafs(packageName, versions).ToArray());
         return obj;
     }
+
     [NugetResourceEndpoint(
-        "RegistrationsBaseUrl",
+        new[]{"RegistrationsBaseUrl","RegistrationsBaseUrl/3.0.0-beta","RegistrationsBaseUrl/3.0.0-rc"},
         "",
         "RegistrationsBaseUrl")]
     [UsedImplicitly]
     private void RegistrationsBaseUrl(Context ctx, string[] urlParams)
     {
-        if (urlParams is not [var id, "index.json"])
+        if (urlParams is not [var packageName, "index.json"])
         {
             SetResponse(ctx, HttpStatusCode.NotFound, null);
             return;
         }
         
-        if (!_packageManager.DoesPackageExist(id))
+        if (!_packageManager.DoesPackageExist(packageName))
         {
             SetResponse(ctx, HttpStatusCode.NotFound, null);
             return;
         }
 
-        SetResponse(ctx, HttpStatusCode.OK, GetRegistrationPage(id));
+        var root = new RegistrationRoot(GetRegistration(packageName, null),
+            new[] { GetRegistrationPage(packageName) });
+        SetResponse(ctx, HttpStatusCode.OK, root);
+    }
+
+    
+    [NugetResourceEndpoint(
+        "Catalog/3.0.0",
+        "",
+        "Catalog")]
+    [UsedImplicitly]
+    private void Catalog(Context ctx, string[] urlParams)
+    {
         
     }
 }

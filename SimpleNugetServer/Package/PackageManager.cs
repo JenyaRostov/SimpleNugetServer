@@ -1,6 +1,4 @@
-﻿using System.Collections.Concurrent;
-
-namespace SimpleNugetServer.Package;
+﻿namespace SimpleNugetServer.Package;
 
 public enum PackageAddResult
 {
@@ -47,6 +45,18 @@ public class PackageManager
 
     private bool DoesPackageExist(string id, string version) => Directory.Exists(GetPackagePath(id,version));
 
+    private void UpdateCommit(string packageName,string version)
+    {
+        var commitPath = Path.Join(GetPackagePath(packageName, version), "commit.txt");
+        File.WriteAllText(commitPath,Guid.NewGuid().ToString());
+    }
+
+    private (DateTime lastWriteTime, string value) GetCommit(string packageName,string version)
+    {
+        var path = Path.Join(GetPackagePath(packageName, version), "commit.txt");
+        return (File.GetLastWriteTime(path).ToUniversalTime(), File.ReadAllText(path));
+    }
+    
     public bool DoesPackageExist(string id) => Directory.Exists(GetPackagePath(id,null));
 
     public bool DeletePackage(string id, string version)
@@ -59,6 +69,7 @@ public class PackageManager
         Directory.Delete(GetPackagePath(id,version),true);
         return true;
     }
+    
     public string[]? GetPackageVersions(string name)
     {
         var packagePath = GetPackagePath(name, null);
@@ -90,6 +101,8 @@ public class PackageManager
         var iconPath = Path.Join(GetPackagePath(name,version), "icon.png");
         return File.Exists(iconPath) ? File.ReadAllBytes(iconPath) : null;
     }
+
+    public DateTime GetPackageUploadTime(string name, string version) => GetCommit(name, version).lastWriteTime;
     public PackageAddResult AddPackage(NugetPackage package,Stream packageStream,Stream nuspecStream)
     {
         var nuspec = package.Nuspec;
@@ -101,6 +114,7 @@ public class PackageManager
         Directory.CreateDirectory(packagePath);
         var packageVersionPath = Path.Join(packagePath, nuspec.Version);
         Directory.CreateDirectory(packageVersionPath);
+        UpdateCommit(packageName,nuspec.Version);
         
         CreatePackageEntry(packageVersionPath,packageName,package,packageStream,nuspecStream);
 

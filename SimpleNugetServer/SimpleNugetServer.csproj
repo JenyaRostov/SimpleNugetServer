@@ -14,10 +14,7 @@
     <ItemGroup>
       <Folder Include="NugetApi\Catalog\" />
     </ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="..\..\..\Personal\CTlsLib\CHttpClient\CHttpClient.csproj" />
-    </ItemGroup>
+    
 
     <ItemGroup>
       <Reference Include="CHttpClient">

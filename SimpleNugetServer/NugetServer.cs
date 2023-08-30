@@ -289,7 +289,7 @@ public partial class NugetServer
     }
     public void Start()
     {
-        _webserver.Start(_options.Host,_options.Port);
+        _webserver.Start(_options.Host,_options.Port,_options.HostName);
         /*_webserver.Prefixes.Add($"http{(Ssl ? "s" : "")}://{_options.Host}:{_options.Port}/"); //TODO:
         _webserver.Start();
         Task.Run(async () =>

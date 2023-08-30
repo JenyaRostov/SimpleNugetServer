@@ -19,6 +19,12 @@
       <ProjectReference Include="..\..\..\Personal\CTlsLib\CHttpClient\CHttpClient.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Reference Include="CHttpClient">
+        <HintPath>Deps\CHttpClient.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
     <!--<ItemGroup>
       <Reference Include="CHttpClient">
         <HintPath>Deps\CHttpClient.dll</HintPath>

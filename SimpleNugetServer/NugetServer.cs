@@ -228,7 +228,16 @@ public partial class NugetServer
             return;
         }
 
-        endpointFunc(ctx, connection,apiPath,url[4..]);
+        Console.WriteLine($"handling endpoint: {endpointName}");
+        try
+        {
+            endpointFunc(ctx, connection,apiPath,url[4..]);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
     }
 
     protected Uri GetEndpoint(NugetEndpoint endpoint,string apiPath) => new($"{_endpoints[apiPath][endpoint].FullUrl}/");

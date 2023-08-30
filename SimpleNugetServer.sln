@@ -2,8 +2,6 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleNugetServer", "SimpleNugetServer\SimpleNugetServer.csproj", "{974A3BDD-8F80-4559-88E0-34D1BA3F5EDD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleNugetServerApp", "SimpleNugetServerApp\SimpleNugetServerApp.csproj", "{9F34A496-445D-4542-8DC0-952A6D6B473B}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

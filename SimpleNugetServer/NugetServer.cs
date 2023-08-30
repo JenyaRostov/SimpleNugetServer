@@ -1,8 +1,10 @@
 ﻿using System.Linq.Expressions;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Https.Http.Server;
 using SimpleNugetServer.Attributes;
 using SimpleNugetServer.Models;
 using SimpleNugetServer.Package;
@@ -10,9 +12,10 @@ using SimpleNugetServer.Package;
 
 namespace SimpleNugetServer;
 
-using Context = HttpListenerContext;
-using NugetResourceEndpointFunc = Action<HttpListenerContext,string, string[]>;
-using EndpointMethod = ValueTuple<string,string[],Action<HttpListenerContext,string, string[]>>;
+using Context = HttpRequestMessage;
+using NugetResourceEndpointFunc = Action<HttpRequestMessage,HttpClientConnection,string, string[]>;
+using EndpointMethod = ValueTuple<string,string[],Action<HttpRequestMessage,HttpClientConnection,string, string[]>>;
+
 public enum NugetEndpoint
 {
     Catalog,
@@ -34,10 +37,10 @@ public partial class NugetServer
 {
     private const string Version = "3.0.0";
     private NugetServerOptions _options;
-    private HttpListener _webserver;
+    private HttpServer _webserver;
 
     private bool Ssl => //_options.Certificate != null;//TODO: tls
-        false;
+        true;
 
     //ApiPath -> AllEndpoints
     private Dictionary<string, Dictionary<NugetEndpoint, NugetEndpointInfo>> _endpoints = new();
@@ -68,7 +71,15 @@ public partial class NugetServer
     public NugetServer(NugetServerOptions options)
     {
         _options = options;
-        _webserver = new HttpListener();
+        _webserver = new("cert", "key");
+        _webserver.OnClientConnected = tuple =>
+        {
+            tuple.Connection.OnRequest = (list, method, arg3, arg4, arg5) =>
+            {
+                Handle(arg5,tuple.Connection);
+                return ValueTask.CompletedTask;
+            };
+        };
 
         //CreateEndpoints(out var methods);
         _endpointInfos = CompileEndpointMethods().ToArray();
@@ -94,7 +105,7 @@ public partial class NugetServer
                 .ToArray();
 
             var call = Expression.Call(Expression.Constant(this), method, parameters);
-            var lambda = Expression.Lambda<Action<Context, string,string[]>>(call, parameters).Compile();
+            var lambda = Expression.Lambda<Action<Context,HttpClientConnection, string,string[]>>(call, parameters).Compile();
             _endpointsFuncs[attr.EndpointName] = lambda;
             foreach(var id in attr.Ids)
                 yield return new CompiledNugetEndpointMethodInfo(id, attr.EndpointName, attr.Comment, lambda);
@@ -138,57 +149,64 @@ public partial class NugetServer
         return new NugetIndex(Version, resources.ToArray(), new NugetContext());
     }
 
-    private void RequestReceivedCallback(Context context)
+    /*private void RequestReceivedCallback(Context context)
     {
         Handle(context);
-    }
+    }*/
 
-    private void SetResponse(Context ctx, HttpStatusCode code, object? obj)
+    private void SetResponse(HttpRequestMessage ctx, HttpClientConnection connection, HttpStatusCode code, object? obj)
     {
-        ctx.Response.StatusCode = (int)code;
+        HttpResponseMessage msg = new();
+        msg.StatusCode = code;
+        //ctx.Response.StatusCode = (int)code;
         if (obj != null)
         {
             var serialized = JsonSerializer.Serialize(obj);
-            ctx.Response.ContentEncoding = Encoding.UTF8;
-            ctx.Response.ContentType = "application/json";
-            ctx.Response.OutputStream.Write(Encoding.UTF8.GetBytes(serialized));
+            StringContent content = new(serialized, Encoding.UTF8, "application/json");
+            msg.Content = content;
+            connection.SendResponse(msg, 0).AsTask().GetAwaiter().GetResult();
         }
         else
         {
-            ctx.Response.ContentEncoding = Encoding.UTF8;
-            ctx.Response.ContentType = "text/html";
+            StringContent content = new("", Encoding.UTF8, "text/html");
+            msg.Content = content;
+            connection.SendResponse(msg, 0).AsTask().GetAwaiter().GetResult();
         }
-
-        ctx.Response.OutputStream.Close();
+        
     }
 
-    private void SetResponseBinary(Context ctx, HttpStatusCode code, Memory<byte>? data)
+    private void SetResponseBinary(HttpRequestMessage ctx, HttpClientConnection connection, HttpStatusCode code,
+        Memory<byte>? data)
     {
-        ctx.Response.StatusCode = (int)code;
-        ctx.Response.ContentType = "application/octet-stream";
+        HttpResponseMessage msg = new();
+        msg.Content = new StringContent("");
+        msg.StatusCode = code;
+        
+        
 
         if (data is null)
         {
-            ctx.Response.OutputStream.Close();
+            connection.SendResponse(msg, 0).AsTask().Wait();
             return;
         }
 
-        ctx.Response.OutputStream.Write(data.Value.Span);
-        ctx.Response.OutputStream.Close();
+        msg.Content = new ReadOnlyMemoryContent(data.Value);
+        msg.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        connection.SendResponse(msg, 0).AsTask().Wait();
     }
 
-    private void SendIndex(Context ctx,string apiPath)
+    private void SendIndex(Context ctx,HttpClientConnection connection,string apiPath)
     {
         var index = CreateIndex(apiPath);
-        SetResponse(ctx, HttpStatusCode.OK, index);
+        SetResponse(ctx, connection,HttpStatusCode.OK, index);
     }
 
-    private void Handle(Context ctx)
+    private void Handle(Context ctx,HttpClientConnection connection)
     {
-        var url = ctx.Request.Url!.Segments[1..].Select(u => u.TrimEnd('/')).ToArray();
+        var url = ctx.RequestUri!.Segments[1..].Select(u => u.TrimEnd('/')).ToArray();
         if (url.Length < 4)
         {
-            SetResponse(ctx, HttpStatusCode.NotFound, null);
+            SetResponse(ctx, connection,HttpStatusCode.NotFound, null);
             return;
         }
 
@@ -200,17 +218,17 @@ public partial class NugetServer
             CreateEndpoints(apiPath);
         if (url is [_, _, _, "index.json"] && isAllowed)
         {
-            SendIndex(ctx,apiPath);
+            SendIndex(ctx,connection,apiPath);
             return;
         }
 
         if (!isAllowed || !_endpointsFuncs.TryGetValue(endpointName, out var endpointFunc))
         {
-            SetResponse(ctx, HttpStatusCode.NotFound, null);
+            SetResponse(ctx, connection,HttpStatusCode.NotFound, null);
             return;
         }
 
-        endpointFunc(ctx, apiPath,url[4..]);
+        endpointFunc(ctx, connection,apiPath,url[4..]);
     }
 
     protected Uri GetEndpoint(NugetEndpoint endpoint,string apiPath) => new($"{_endpoints[apiPath][endpoint].FullUrl}/");
@@ -262,7 +280,8 @@ public partial class NugetServer
     }
     public void Start()
     {
-        _webserver.Prefixes.Add($"http{(Ssl ? "s" : "")}://{_options.Host}:{_options.Port}/"); //TODO:
+        _webserver.Start(_options.Host,_options.Port);
+        /*_webserver.Prefixes.Add($"http{(Ssl ? "s" : "")}://{_options.Host}:{_options.Port}/"); //TODO:
         _webserver.Start();
         Task.Run(async () =>
         {
@@ -271,6 +290,6 @@ public partial class NugetServer
                 var ctx = await _webserver.GetContextAsync();
                 RequestReceivedCallback(ctx);
             }
-        });
+        });*/
     }
 }

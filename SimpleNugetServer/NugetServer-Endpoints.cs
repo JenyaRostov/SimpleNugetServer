@@ -1,5 +1,7 @@
 ﻿using System.Net;
+using System.Web;
 using HttpMultipartParser;
+using Https.Http.Server;
 using JetBrains.Annotations;
 using SimpleNugetServer.Attributes;
 using SimpleNugetServer.NugetApi;
@@ -7,7 +9,7 @@ using SimpleNugetServer.NugetApi.SearchQueryService;
 using SimpleNugetServer.Package;
 using NugetPackage = SimpleNugetServer.Package.NugetPackage;
 namespace SimpleNugetServer;
-using Context = HttpListenerContext;
+using Context = HttpRequestMessage;
 
 public partial class NugetServer
 {
@@ -16,37 +18,37 @@ public partial class NugetServer
         "",
         "PackagePublish")]
     [UsedImplicitly]
-    private void PackagePublish(Context ctx, string apiPath,string[] urlParams)
+    private void PackagePublish(Context ctx, HttpClientConnection connection,string apiPath,string[] urlParams)
     {
-        if (ctx.Request.HttpMethod is "DELETE" && urlParams is [var id, var version])
+        if (ctx.Method == HttpMethod.Delete && urlParams is [var id, var version])
         {
             var status = _packageManager.DeletePackage(id, version);
-            SetResponse(ctx, status ? HttpStatusCode.OK : HttpStatusCode.NotFound, null);
+            SetResponse(ctx,connection,status ? HttpStatusCode.OK : HttpStatusCode.NotFound,  null);
             return;
         }
 
-        if (ctx.Request.ContentType is null || !ctx.Request.ContentType.Contains("multipart/form-data") ||
-            ctx.Request.HttpMethod != "PUT")
+        if (ctx.Content is null || !ctx.Content.Headers.ContentType.MediaType.Contains("multipart/form-data") ||
+            ctx.Method != HttpMethod.Put)
         {
-            SetResponse(ctx, HttpStatusCode.BadRequest, null);
+            SetResponse(ctx, connection,HttpStatusCode.BadRequest, null);
             return;
         }
 
-        MemoryStream fullData = new();
-        ctx.Request.InputStream.CopyTo(fullData);
-        fullData.Position = 0;
-        var parser = MultipartFormDataParser.Parse(fullData);
+        /*MemoryStream fullData = new();
+        ctx.Request.InputStream.CopyTo(fullData);*/
+        //fullData.Position = 0;
+        var parser = MultipartFormDataParser.Parse(ctx.Content.ReadAsStream());
 
         if (parser.Files.Count is 0)
         {
-            SetResponse(ctx, HttpStatusCode.BadRequest, null);
+            SetResponse(ctx,connection, HttpStatusCode.BadRequest, null);
             return;
         }
         
         var file = parser.Files[0].Data!;
         var result =
             _packageManager.AddPackage(NugetPackage.FromStream(file, out var nuspecStream), file, nuspecStream);
-        SetResponse(ctx, result is PackageAddResult.AlreadyExists ? HttpStatusCode.Conflict : HttpStatusCode.OK,
+        SetResponse(ctx, connection,result is PackageAddResult.AlreadyExists ? HttpStatusCode.Conflict : HttpStatusCode.OK,
             null);
     }
 
@@ -55,14 +57,14 @@ public partial class NugetServer
         "",
         "PackageBaseAddress")]
     [UsedImplicitly]
-    private void PackageBaseAddress(Context ctx, string apiPath,string[] urlParams)
+    private void PackageBaseAddress(Context ctx, HttpClientConnection connection,string apiPath,string[] urlParams)
     {
         switch (urlParams)
         {
             case [var packageName, "index.json"]:
             {
                 var versions = _packageManager.GetPackageVersions(packageName);
-                SetResponse(ctx, versions != null ? HttpStatusCode.OK : HttpStatusCode.NotFound,
+                SetResponse(ctx,connection, versions != null ? HttpStatusCode.OK : HttpStatusCode.NotFound,
                     versions != null
                         ? new
                         {
@@ -74,23 +76,23 @@ public partial class NugetServer
             case [var lowerId, var lowerVersion, var data] when data.EndsWith(".nupkg"):
             {
                 var package = _packageManager.GetPackage(lowerId, lowerVersion);
-                SetResponseBinary(ctx, package != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, package);
+                SetResponseBinary(ctx,connection, package != null ? HttpStatusCode.OK : HttpStatusCode.NotFound,  package);
                 return;
             }
             case [var lowerId, var lowerVersion, var data] when data.EndsWith(".nuspec"):
             {
                 var nuspec = _packageManager.GetNuspecBytes(lowerId, lowerVersion);
-                SetResponseBinary(ctx, nuspec != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, nuspec);
+                SetResponseBinary(ctx,connection, nuspec != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, nuspec);
                 return;
             }
             case [var lowerId, var lowerVersion, "icon"]:
             {
                 var icon = _packageManager.GetIcon(lowerId, lowerVersion);
-                SetResponseBinary(ctx, icon != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, icon);
+                SetResponseBinary(ctx,connection, icon != null ? HttpStatusCode.OK : HttpStatusCode.NotFound, icon);
                 return;
             }
             default:
-                SetResponse(ctx, HttpStatusCode.BadRequest, null);
+                SetResponse(ctx,connection, HttpStatusCode.BadRequest, null);
                 break;
         }
     }
@@ -105,9 +107,9 @@ public partial class NugetServer
         "",
         "SearchQueryService")]
     [UsedImplicitly]
-    private void SearchQueryService(Context ctx, string apiPath,string[] urlParams) //TODO: Support unlisting packages
+    private void SearchQueryService(Context ctx, HttpClientConnection connection,string apiPath,string[] urlParams) //TODO: Support unlisting packages
     {
-        var queryElements = ctx.Request.QueryString;
+        var queryElements = HttpUtility.ParseQueryString(ctx.RequestUri!.Query);
         var specifications =
             _packageManager.FindPackages(
                 queryElements["q"],
@@ -144,7 +146,7 @@ public partial class NugetServer
 
         var result = new SearchResult(totalHits, data, new SearchContext(
             GetEndpoint(NugetEndpoint.RegistrationsBaseUrl,apiPath).ToString()));
-        SetResponse(ctx, HttpStatusCode.OK, result);
+        SetResponse(ctx,connection, HttpStatusCode.OK, result);
     }
 
     private IEnumerable<DependencyGroup> GetDependencyGroups(NugetSpecification spec,string apiPath)
@@ -222,23 +224,23 @@ public partial class NugetServer
         "",
         "RegistrationsBaseUrl")]
     [UsedImplicitly]
-    private void RegistrationsBaseUrl(Context ctx, string apiPath,string[] urlParams)
+    private void RegistrationsBaseUrl(Context ctx, HttpClientConnection connection,string apiPath,string[] urlParams)
     {
         if (urlParams is not [var packageName, "index.json"])
         {
-            SetResponse(ctx, HttpStatusCode.NotFound, null);
+            SetResponse(ctx,connection,HttpStatusCode.NotFound, null);
             return;
         }
         
         if (!_packageManager.DoesPackageExist(packageName))
         {
-            SetResponse(ctx, HttpStatusCode.NotFound, null);
+            SetResponse(ctx,connection, HttpStatusCode.NotFound, null);
             return;
         }
 
         var root = new RegistrationRoot(GetRegistration(packageName, null,apiPath),
             new[] { GetRegistrationPage(packageName,apiPath) });
-        SetResponse(ctx, HttpStatusCode.OK, root);
+        SetResponse(ctx,connection, HttpStatusCode.OK, root);
     }
 
     

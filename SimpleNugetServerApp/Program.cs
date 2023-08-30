@@ -95,7 +95,7 @@ config.options!.CustomPathValidationCallback = s => passwords.Contains(s);
 var server = new NugetServer(config.options);
 server.Start();
 Console.WriteLine("To change configuration change config.json or passwords.txt");
-Console.WriteLine("Server started. Press enter to stop");
+Console.WriteLine($"Server started on {config.options.Host}:{config.options.Port}. Press enter to stop");
 Console.ReadKey();
 
 

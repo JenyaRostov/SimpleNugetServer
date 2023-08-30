@@ -143,15 +143,22 @@ public class PackageManager
             var packageName = new DirectoryInfo(dir).Name;
             specifications.TryAdd(packageName, new List<NugetSpecification>());
             var specs = specifications[packageName];
-            
+
+            bool noStable = true;
             foreach(var verDir in versionDirectories)
             {
                 if (verDir.Contains('-') && !prerelease)
                     continue;
+                noStable = false;
                 using var fs = File.OpenRead(Path.Join(verDir, $"{packageName}.nuspec"));
                 specs.Add(NugetSpecification.FromStream(fs));
             }
-            
+
+            if (noStable)
+            {
+                specifications.Remove(packageName);
+                break;
+            }
             totalHits++;
         }
 

@@ -71,7 +71,7 @@ public partial class NugetServer
     public NugetServer(NugetServerOptions options)
     {
         _options = options;
-        _webserver = new("cert", "key");
+        _webserver = new("cert", "key",false);
         _webserver.OnClientConnected = tuple =>
         {
             tuple.Connection.OnRequest = (list, method, arg3, arg4, arg5) =>

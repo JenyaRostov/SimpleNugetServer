@@ -28,6 +28,7 @@ public class NugetController : ControllerBase
     internal static void InitNuget(IEnumerable<ControllerActionDescriptor> descriptors,ConfigurationManager configuration)
     {
         GlobalUri = new Uri(configuration["urls"]!);
+        Console.WriteLine($"{GlobalUri} - GlobalUri");
         //var controller = typeof(NugetController);
         /*var methods = controller.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m.GetCustomAttribute<NugetResourceEndpointAttribute>() != null);*/

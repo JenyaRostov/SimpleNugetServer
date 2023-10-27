@@ -1,4 +1,5 @@
 using System.Security.Authentication;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -9,11 +10,15 @@ using NugetServer.Controllers;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var rsa = RSA.Create();
+rsa.ImportFromPem(File.ReadAllText("key"));
+var cert = new X509Certificate2("cert.pem");
+cert = cert.CopyWithPrivateKey(rsa);
 var httpsConnectionAdapterOptions = new HttpsConnectionAdapterOptions
 {
     SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
     ClientCertificateMode = ClientCertificateMode.AllowCertificate,
-    ServerCertificate = new X509Certificate2("cert.pem")
+    ServerCertificate = cert
 
 };
 builder.WebHost.ConfigureKestrel(options =>

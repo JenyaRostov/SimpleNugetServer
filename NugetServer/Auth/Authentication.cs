@@ -27,6 +27,7 @@ public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSc
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        var host = new Uri(_configuration["urls"]!).Host;
         var authHeader = Request.Headers["Authorization"].ToString();
 
         if (authHeader != null && authHeader.StartsWith("basic", StringComparison.OrdinalIgnoreCase))
@@ -50,14 +51,14 @@ public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSc
             }
 
             Response.StatusCode = 401;
-            Response.Headers.Add("WWW-Authenticate", "Basic realm=\"localhost\"");
+            Response.Headers.Add("WWW-Authenticate", $"Basic realm=\"{host}\"");
 
             return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Header"));
         }
         else
         {
             Response.StatusCode = 401;
-            Response.Headers.Add("WWW-Authenticate", "Basic realm=\"localhost\"");
+            Response.Headers.Add("WWW-Authenticate", $"Basic realm=\"{host}\"");
 
             return Task.FromResult(AuthenticateResult.Fail("Invalid Authorization Header"));
         }

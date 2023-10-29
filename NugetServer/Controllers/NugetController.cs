@@ -118,7 +118,7 @@ public class NugetController : ControllerBase
         "",
         NugetEndpoint.SearchQueryService)]
     [HttpGet("SearchQueryService"),Authorize]
-    public IActionResult SearchQuery([FromQuery()] string q = "",[FromQuery] int skip = 0,[FromQuery] int take = 1000,[FromQuery] bool prerelease = false)
+    public IActionResult SearchQuery([FromQuery] string q = "",[FromQuery] int skip = 0,[FromQuery] int take = 1000,[FromQuery] bool prerelease = false)
     {
         var specifications =
             _manager.FindPackages(
@@ -169,7 +169,7 @@ public class NugetController : ControllerBase
     {
         var versions = _manager.GetPackageVersions(packageName);
         
-        return versions != null ? Ok(versions) : NotFound();
+        return versions != null ? Ok(new {versions}) : NotFound();
     }
     
     [NugetResourceEndpoint(
@@ -212,11 +212,8 @@ public class NugetController : ControllerBase
     public IActionResult PackagePublishDelete(string id = "", string version = "")
     {
         if (HttpContext.Request.Method is not "DELETE")
-        {
             return BadRequest();
-
-        }
-
+        
         var status = _manager.DeletePackage(id, version);
         return status ? Ok() : NotFound();
 
@@ -232,8 +229,7 @@ public class NugetController : ControllerBase
         if (!HttpContext.Request.Headers.ContentType.Contains("multipart/form-data") ||
             HttpContext.Request.Method != "PUT")
             return BadRequest();
-
-
+        
         MemoryStream fullData = new();
         file.CopyTo(fullData);
 
@@ -244,7 +240,6 @@ public class NugetController : ControllerBase
         return result is PackageAddResult.AlreadyExists
             ? Conflict()
             : Ok();
-
     }
     
     private IEnumerable<DependencyGroup> GetDependencyGroups(NugetSpecification spec)
@@ -326,10 +321,8 @@ public class NugetController : ControllerBase
     {
         
         if (!_manager.DoesPackageExist(packageName))
-        {
             return NotFound();
-        }
-
+        
         var root = new RegistrationRoot(GetRegistration(packageName, null),
             new[] { GetRegistrationPage(packageName) });
         return Ok(root);

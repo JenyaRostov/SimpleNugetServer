@@ -208,7 +208,7 @@ public class NugetController : ControllerBase
         "PackagePublish/2.0.0",
         "",
         NugetEndpoint.PackagePublish)]
-    [HttpGet("PackagePublish/{id}/{version}"),Authorize]
+    [HttpDelete("PackagePublish/{id}/{version}"),Authorize]
     public IActionResult PackagePublishDelete(string id = "", string version = "")
     {
         if (HttpContext.Request.Method is not "DELETE")
@@ -223,7 +223,7 @@ public class NugetController : ControllerBase
         "PackagePublish/2.0.0",
         "",
         NugetEndpoint.PackagePublish)]
-    [HttpGet("PackagePublish"),Authorize]
+    [HttpPut("PackagePublish"),Authorize]
     public IActionResult PackagePublishUpload([FromForm] IFormFile file)
     {
         if (!HttpContext.Request.Headers.ContentType.Contains("multipart/form-data") ||

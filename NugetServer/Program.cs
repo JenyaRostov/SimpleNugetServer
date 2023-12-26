@@ -10,24 +10,29 @@ using NugetServer.Controllers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var rsa = RSA.Create();
-rsa.ImportFromPem(File.ReadAllText("key"));
-var cert = new X509Certificate2("cert.pem");
-cert = cert.CopyWithPrivateKey(rsa);
-var httpsConnectionAdapterOptions = new HttpsConnectionAdapterOptions
+bool useHttps = File.Exists("key");
+Console.WriteLine($"HTTPS Status: {useHttps}");
+if(useHttps)
 {
-    SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-    ClientCertificateMode = ClientCertificateMode.AllowCertificate,
-    ServerCertificate = cert
-
-};
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.ConfigureEndpointDefaults(listenOptions =>
+    var rsa = RSA.Create();
+    rsa.ImportFromPem(File.ReadAllText("key"));
+    var cert = new X509Certificate2("cert.pem");
+    cert = cert.CopyWithPrivateKey(rsa);
+    var httpsConnectionAdapterOptions = new HttpsConnectionAdapterOptions
     {
-        listenOptions.UseHttps(httpsConnectionAdapterOptions);
+        SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+        ClientCertificateMode = ClientCertificateMode.AllowCertificate,
+        ServerCertificate = cert
+
+    };
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.ConfigureEndpointDefaults(listenOptions =>
+        {
+            listenOptions.UseHttps(httpsConnectionAdapterOptions);
+        });
     });
-});
+}
 // Add services to the container.
 
 builder.Services.AddControllers();
@@ -35,12 +40,14 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+
 builder.Services.AddAuthentication()
     .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("BasicScheme",options => {});
 
 var app = builder.Build();
 
-app.UseHttpsRedirection();
+if(useHttps)
+    app.UseHttpsRedirection();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -48,7 +55,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
 
 app.UseAuthorization();
 

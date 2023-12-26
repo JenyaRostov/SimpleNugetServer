@@ -159,7 +159,7 @@ public class NugetController : ControllerBase
 
         return Ok(result);
     }
-
+    
     [NugetResourceEndpoint(
         "PackageBaseAddress/3.0.0",
         "",
@@ -208,6 +208,31 @@ public class NugetController : ControllerBase
         "PackagePublish/2.0.0",
         "",
         NugetEndpoint.PackagePublish)]
+    [HttpPut("PackagePublish/"),Authorize]
+    public IActionResult PackagePublishUpload()
+    {
+        if (!HttpContext.Request.Headers.ContentType.ToString().Contains("multipart/form-data") ||
+            HttpContext.Request.Method != "PUT")
+            return BadRequest();
+        var file = HttpContext.Request.Form.Files[0];
+        
+        MemoryStream fullData = new();
+        file.CopyTo(fullData);
+        //filename.CopyTo(fullData);
+
+        fullData.Position = 0;
+        var result = _manager.AddPackage(NugetPackage.FromStream(fullData, out var nuspecStream), fullData,
+            nuspecStream);
+
+        return result is PackageAddResult.AlreadyExists
+            ? Conflict()
+            : Ok();
+    }
+    
+    [NugetResourceEndpoint(
+        "PackagePublish/2.0.0",
+        "",
+        NugetEndpoint.PackagePublish)]
     [HttpDelete("PackagePublish/{id}/{version}"),Authorize]
     public IActionResult PackagePublishDelete(string id = "", string version = "")
     {
@@ -219,28 +244,7 @@ public class NugetController : ControllerBase
 
     }
 
-    [NugetResourceEndpoint(
-        "PackagePublish/2.0.0",
-        "",
-        NugetEndpoint.PackagePublish)]
-    [HttpPut("PackagePublish"),Authorize]
-    public IActionResult PackagePublishUpload([FromForm] IFormFile file)
-    {
-        if (!HttpContext.Request.Headers.ContentType.Contains("multipart/form-data") ||
-            HttpContext.Request.Method != "PUT")
-            return BadRequest();
-        
-        MemoryStream fullData = new();
-        file.CopyTo(fullData);
-
-        fullData.Position = 0;
-        var result = _manager.AddPackage(NugetPackage.FromStream(fullData, out var nuspecStream), fullData,
-            nuspecStream);
-
-        return result is PackageAddResult.AlreadyExists
-            ? Conflict()
-            : Ok();
-    }
+    
     
     private IEnumerable<DependencyGroup> GetDependencyGroups(NugetSpecification spec)
     {
